@@ -1,0 +1,81 @@
+name: Build wxhelper
+
+on:
+  workflow_dispatch:  # 只允许手动触发
+
+env:
+  BUILD_TYPE: Release
+  VCPKG_DEFAULT_TRIPLET: x64-windows
+  VCPKG_INSTALL_DIR: ${{ github.workspace }}/vcpkg
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        # submodules: 'recursive'
+        ref: 'dev-3.9.11.25'  # 指定检出的分支
+    
+    # 安装 Visual Studio 组件
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.1
+      
+    - name: Add VS Developer Command Prompt
+      uses: ilammy/msvc-dev-cmd@v1
+      
+    # 安装 vcpkg
+    - name: Install vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        
+    # 使用 vcpkg 安装依赖
+    - name: Install Dependencies
+      run: |
+        .\vcpkg\vcpkg install detours:x64-windows
+        .\vcpkg\vcpkg install nlohmann-json:x64-windows
+        .\vcpkg\vcpkg install spdlog:x64-windows
+        
+    # 克隆必要的第三方库
+    # - name: Clone Third-party Libraries
+    #   run: |
+    #     cd app/3rdparty
+    #     git clone https://github.com/microsoft/Detours.git
+    #     git clone https://github.com/gabime/spdlog.git
+    #     git clone https://github.com/nlohmann/json.git
+        
+    # 复制 detours cmake 文件
+    - name: Setup Detours CMake
+      run: |
+        copy cmake\detours.cmake app\3rdparty\Detours\CMakeLists.txt
+        
+    # 配置 CMake
+    - name: Configure CMake
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_C_COMPILER=cl.exe `
+              -DCMAKE_CXX_COMPILER=cl.exe `
+              -DCMAKE_ASM_MASM_COMPILER=ml64.exe `
+              -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} `
+              -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install/x64-${{env.BUILD_TYPE}} `
+              -DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_INSTALL_DIR}}/scripts/buildsystems/vcpkg.cmake `
+              -S${{github.workspace}} `
+              -B${{github.workspace}}/build/x64-${{env.BUILD_TYPE}} `
+              -G Ninja
+              
+    # 构建项目
+    - name: Build
+      run: cmake --build build/x64-${{env.BUILD_TYPE}}
+      
+    # 上传构建产物
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: wxhelper-dll
+        path: |
+          build/x64-${{env.BUILD_TYPE}}/**/*.dll
+          build/x64-${{env.BUILD_TYPE}}/**/*.lib
